@@ -18,6 +18,11 @@ struct Vector {
     Vector operator*(double t) const { return Vector(x*t,y*t,z*t); }
 };
 
+struct BufferHilo {
+    vector<Vector>* verts;
+    vector<vector<int>>* caras;
+};
+
 Vector interpolacion(double nivelIso, const Vector& p1, const Vector& p2, double valorP1, double valorP2) {
     if (abs(nivelIso-valorP1)<1e-6) return p1;
     if (abs(nivelIso-valorP2)<1e-6) return p2;
@@ -25,7 +30,7 @@ Vector interpolacion(double nivelIso, const Vector& p1, const Vector& p2, double
     double t=(nivelIso-valorP1)/(valorP2-valorP1);
     return p1 + (p2-p1)*t;
 }
-// variables globales
+
 vector<Vector> vertices;
 vector<vector<int>> caras;
 
@@ -48,6 +53,7 @@ void marchingCubeCelda(function<double(double,double,double)> funcion, double x,
 
     Vector posicionesCubo[8];
     double valoresCubo[8];
+
     for(int i=0; i<8; i++) {
         posicionesCubo[i] = Vector(x,y,z)+verticesCubo[i]*tamanio;
         valoresCubo[i] = funcion(posicionesCubo[i].x, posicionesCubo[i].y, posicionesCubo[i].z);
@@ -55,7 +61,7 @@ void marchingCubeCelda(function<double(double,double,double)> funcion, double x,
 
     int indiceCubo = 0;
     for(int i=0; i<8; i++)
-        if(valoresCubo[i] <= nivelIso)  
+        if(valoresCubo[i] <= nivelIso)
             indiceCubo |= (1<<i);
 
     if(tablaDeAristas[indiceCubo]==0) return;
@@ -80,51 +86,47 @@ void marchingCubeCelda(function<double(double,double,double)> funcion, double x,
     }
 }
 
-void subdividir_paralelo(function<double(double,double,double)> funcion,
-                         double xmin, double ymin, double zmin,
-                         double xmax, double ymax, double zmax,
-                         double precision, double nivelIso) {
-
+void subdividir_paralelo(function<double(double,double,double)> funcion,double xmin, double ymin, double zmin,double xmax, double ymax, double zmax,double precision, double nivelIso) {
     int nx = (int)((xmax - xmin) / precision);
     int ny = (int)((ymax - ymin) / precision);
     int nz = (int)((zmax - zmin) / precision);
 
-    // buffers locales por hilo
-    vector<vector<Vector>> vertices_threads(omp_get_max_threads());
-    vector<vector<vector<int>>> caras_threads(omp_get_max_threads());
+    vector<BufferHilo> buffers_hilos;
+    buffers_hilos.reserve(omp_get_max_threads());
 
-    #pragma omp parallel for collapse(3) schedule(static) //static me da mejor tiempo que dynamic
-    /*
-    La cláusula schedule(dynamic) distribuye las iteraciones entre los hilos
-    conforme estos van terminando su trabajo, resultando útil cuando las iteraciones
-    tienen una carga de trabajo desigual.
-    */
-    for (int i = 0; i < nx; i++) {
-        for (int j = 0; j < ny; j++) {
-            for (int k = 0; k < nz; k++) {
-                double x = xmin + i * precision;
-                double y = ymin + j * precision;
-                double z = zmin + k * precision;
-                int tid = omp_get_thread_num();
+    #pragma omp parallel
+    {
+        vector<Vector> vertices_local;
+        vector<vector<int>> caras_local;
 
-                marchingCubeCelda(funcion, x, y, z, precision, nivelIso,
-                                  vertices_threads[tid], caras_threads[tid]);
+        vertices_local.reserve(8192);
+        caras_local.reserve(4096);
+
+        #pragma omp for collapse(3) schedule(static)
+        for (int i = 0; i < nx; i++) {
+            for (int j = 0; j < ny; j++) {
+                for (int k = 0; k < nz; k++) {
+                    double x = xmin + i * precision;
+                    double y = ymin + j * precision;
+                    double z = zmin + k * precision;
+                    marchingCubeCelda(funcion, x, y, z, precision, nivelIso, vertices_local, caras_local);
+                }
             }
         }
+
+        #pragma omp critical
+        buffers_hilos.push_back({ new vector<Vector>(vertices_local), new vector<vector<int>>(caras_local) });
+
     }
 
-    // fusion de resultados de todos los hilos
-    for (int t = 0; t < omp_get_max_threads(); t++) {
+    for (auto &b : buffers_hilos)
+    {
         int offset = vertices.size();
-        vertices.insert(vertices.end(),
-                        vertices_threads[t].begin(),
-                        vertices_threads[t].end());
-        for (auto &f : caras_threads[t]) {
-            caras.push_back({f[0] + offset, f[1] + offset, f[2] + offset});
-        }
+        vertices.insert(vertices.end(), b.verts->begin(), b.verts->end());
+        for (auto &f : *(b.caras))
+            caras.push_back({f[0]+offset, f[1]+offset, f[2]+offset});
     }
 }
-
 
 void PLY(const string& filename) {
     ofstream out(filename);
@@ -139,8 +141,6 @@ void PLY(const string& filename) {
         out << v.x << " " << v.y << " " << v.z << "\n";
     for(auto& f:caras)
         out << "3 " << f[0] << " " << f[1] << " " << f[2] << "\n";
-
-    out.close();
 }
 
 void draw_curve(function<double(double,double,double)> f, const string& filename,

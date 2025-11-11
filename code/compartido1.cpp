@@ -4,6 +4,7 @@
 #include <functional>
 #include <cmath>
 #include <omp.h> 
+#include <cstring>
 #include "tablas.h"
 #include <chrono>
 
@@ -104,7 +105,6 @@ void subdividir_paralelo(function<double(double,double,double)> funcion,double x
                     double x = xmin + i * precision;
                     double y = ymin + j * precision;
                     double z = zmin + k * precision;
-
                     marchingCubeCelda(funcion, x, y, z, precision, nivelIso, vertices_local, caras_local);
                 }
             }
@@ -142,21 +142,55 @@ void draw_curve(function<double(double,double,double)> f, const string& filename
                 double xmin, double ymin, double zmin, double xmax, double ymax, double zmax, double precision) {
     vertices.clear();
     caras.clear();
+
     double isolevel = 0.0;
+
     double t_inicio = omp_get_wtime();
     subdividir_paralelo(f, xmin, ymin, zmin, xmax, ymax, zmax, precision, isolevel);
     double t_final = omp_get_wtime();
-    cout << "Tiempo de ejecución (segundos): " << t_final - t_inicio << endl;
+    double t_exec = t_final - t_inicio;
+
+    // calcular número total de triángulos generados
+    size_t total_triangles = caras.size();
+
+    // salida estándar (para SLURM u otros medidores)
+    std::cout << "TIME=" << t_exec << std::endl;
+    std::cout << "TRIANGLES=" << total_triangles << std::endl;
+    std::cout << std::flush;
+
+    // guardar archivo PLY
     PLY(filename);
-    cout << "Archivo PLY: " << filename << " con " << vertices.size()
-         << " vertices y " << caras.size() << " caras." << endl;
+
+    // mensaje informativo
+    cout << "Archivo PLY: " << filename
+         << " con " << vertices.size() << " vertices y "
+         << caras.size() << " caras." << endl;
 }
 
-int main() {
-    auto f = [](double x, double y, double z) {
-        double cx=0.5, cy=0.5, cz=0.5, r=0.5;
-        return (x-cx)*(x-cx)+(y-cy)*(y-cy)+(z-cz)*(z-cz)-r*r;
-    };
-    draw_curve(f, "output_huge.ply", -1, -1, -1, 2, 2, 2, 0.01);
+
+int main(int argc, char** argv) {
+    double step = 0.01;
+    bool hard = false;
+
+    if (argc > 1) step = atof(argv[1]);
+    if (argc > 2 && strcmp(argv[2], "hard") == 0) hard = true;
+
+    function<double(double,double,double)> f;
+
+    if (hard) {
+        f = [&](double x,double y,double z) {
+            return sin(15*x) + cos(15*y) + sin(15*z) - 0.2;
+        };
+        cout << "Modo: HARD surface\n";
+    } else {
+        f = [&](double x,double y,double z) {
+            double cx = 0.5, cy = 0.5, cz = 0.5, r = 0.5;
+            return (x-cx)*(x-cx)+(y-cy)*(y-cy)+(z-cz)*(z-cz)-r*r;
+        };
+        cout << "Modo: BASIC sphere\n";
+    }
+
+    string file = hard ? "out_hard.ply" : "out_basic.ply";
+    draw_curve(f, file, -1, -1, -1, 2, 2, 2, step);
     return 0;
 }
