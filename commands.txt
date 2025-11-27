@@ -1,0 +1,5 @@
+[Khipu]
+g++ -fopenmp -o marching_cubes_octree_omp marching_cubes_octree_omp.cpp
+sed -i 's/\r$//' run_omp_experiments.sh
+chmod +x run_omp_experiments.sh
+./run_omp_experiments.sh
