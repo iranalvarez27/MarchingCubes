@@ -159,17 +159,17 @@ double ejecutarMarchingCubes(function<double(double,double,double)> f, double pr
     // CLAVE: Calcular nivel optimo segun threads y tamaño del problema
    int nivelSubdivision;
 
-    if (precision >= 0.01) {              // 64^3, 96^3
-        nivelSubdivision = 3;             // 8^3 = 512 octantes
+    if (precision >= 0.01) {
+        nivelSubdivision = 3;       
     }
-    else if (precision >= 0.005) {        // 128^3, 192^3
-        nivelSubdivision = 4;             // 16^3 = 4096 octantes
+    else if (precision >= 0.005) {       
+        nivelSubdivision = 4;         
     }
-    else if (precision >= 0.002) {        // 256^3, 384^3
-        nivelSubdivision = 4;             // ***ANTES ERA 5***
+    else if (precision >= 0.002) {    
+        nivelSubdivision = 4;          
     }
-    else {                                // 512^3, 640^3, 768^3, 896^3, 1024^3
-        nivelSubdivision = 3;             // ***ANTES ERA 5***
+    else {                           
+        nivelSubdivision = 3;       
     }
 
     // Ajustar segun numero de threads
@@ -190,7 +190,7 @@ double ejecutarMarchingCubes(function<double(double,double,double)> f, double pr
         // CRITICO: schedule(dynamic) con chunk adaptativo
         int chunk = max(1, (int)(octantes.size() / (numThreads * 8)));
         
-        #pragma omp for schedule(dynamic, 1) nowait
+        #pragma omp for schedule(dynamic, chunk) nowait
         for (size_t i = 0; i < octantes.size(); i++) {
             octreeSecuencial(f, octantes[i].minC, octantes[i].maxC, precision, 0.0, threadData[tid]);
         }
